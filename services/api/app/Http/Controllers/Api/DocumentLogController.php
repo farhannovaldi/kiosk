@@ -63,6 +63,12 @@ class DocumentLogController extends Controller
     {
         abort_unless(in_array($request->user()?->role, ['admin', 'staff'], true), 403, 'Forbidden');
 
+        if ($documentLog->status === 'diambil') {
+            return response()->json([
+                'message' => 'Status dokumen yang sudah diambil tidak dapat diubah lagi.',
+            ], 422);
+        }
+
         $validated = $request->validate([
             'status' => ['nullable', 'in:diproses,siap_diambil,diambil'],
             'pickup_counter' => ['nullable', 'string', 'max:255'],

@@ -267,10 +267,16 @@ export default function StaffClient() {
 
     setDocNik(dashboard.current.visitor.nik || "");
     setDocName(dashboard.current.visitor.name || "");
+    setDocType(dashboard.current.service?.name || "");
     setError(null);
   };
 
   const updateDocumentStatus = async (log: DocumentLog, status: DocumentLog["status"]) => {
+    if (log.status === "diambil") {
+      setError("Status dokumen yang sudah diambil tidak dapat diubah lagi.");
+      return;
+    }
+
     setError(null);
     try {
       await apiFetch(`/document-logs/${log.id}`, {
@@ -282,6 +288,10 @@ export default function StaffClient() {
       setError(err.message || "Gagal update status dokumen.");
     }
   };
+
+  const processingLogs = documentLogs.filter((log) => log.status === "diproses");
+  const readyLogs = documentLogs.filter((log) => log.status === "siap_diambil");
+  const historyLogs = documentLogs.filter((log) => log.status === "diambil");
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-50 to-white">
@@ -640,42 +650,83 @@ export default function StaffClient() {
             {savingDocument ? "Menyimpan..." : "Simpan Status Dokumen"}
           </button>
 
-          <div className="max-h-[320px] space-y-3 overflow-y-auto pr-1">
-            {documentLogs.length ? (
-              documentLogs.map((log) => (
-                <div key={log.id} className="rounded-xl border border-gray-200 bg-gray-50 p-4">
-                  <div className="flex flex-wrap items-center justify-between gap-3">
-                    <div>
-                      <p className="font-bold text-gray-800">{log.name} • {log.document_type}</p>
-                      <p className="text-sm text-gray-500">NIK: {log.nik}</p>
-                      <p className="text-sm text-gray-500">
-                        {log.pickup_counter ? `Loket: ${log.pickup_counter}` : "Loket: -"}
-                      </p>
-                    </div>
+          <div className="space-y-6">
+            {([
+              { title: "Diproses", logs: processingLogs },
+              { title: "Siap Diambil", logs: readyLogs },
+            ] as const).map((section) => (
+              <div key={section.title}>
+                <h4 className="mb-3 text-sm font-extrabold uppercase tracking-wider text-emerald-700">
+                  {section.title} ({section.logs.length})
+                </h4>
+                <div className="max-h-[220px] space-y-3 overflow-y-auto pr-1">
+                  {section.logs.length ? (
+                    section.logs.map((log) => (
+                      <div key={log.id} className="rounded-xl border border-gray-200 bg-gray-50 p-4">
+                        <div className="flex flex-wrap items-center justify-between gap-3">
+                          <div>
+                            <p className="font-bold text-gray-800">{log.name} • {log.document_type}</p>
+                            <p className="text-sm text-gray-500">NIK: {log.nik}</p>
+                            <p className="text-sm text-gray-500">
+                              {log.pickup_counter ? `Loket: ${log.pickup_counter}` : "Loket: -"}
+                            </p>
+                          </div>
 
-                    <div className="flex items-center gap-2">
-                      {(["diproses", "siap_diambil", "diambil"] as DocumentLog["status"][]).map((status) => (
-                        <button
-                          key={status}
-                          type="button"
-                          onClick={() => updateDocumentStatus(log, status)}
-                          className={`rounded-lg px-3 py-1.5 text-xs font-bold transition-all ${
-                            log.status === status
-                              ? "bg-emerald-600 text-white"
-                              : "bg-white text-gray-600 border border-gray-300 hover:border-emerald-400 hover:text-emerald-700"
-                          }`}
-                        >
-                          {statusLabel[status]}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                  {log.notes && <p className="mt-2 text-sm text-gray-600">Catatan: {log.notes}</p>}
+                          <div className="flex items-center gap-2">
+                            {(["diproses", "siap_diambil", "diambil"] as DocumentLog["status"][]).map((status) => (
+                              <button
+                                key={status}
+                                type="button"
+                                onClick={() => updateDocumentStatus(log, status)}
+                                className={`rounded-lg px-3 py-1.5 text-xs font-bold transition-all ${
+                                  log.status === status
+                                    ? "bg-emerald-600 text-white"
+                                    : "bg-white text-gray-600 border border-gray-300 hover:border-emerald-400 hover:text-emerald-700"
+                                }`}
+                              >
+                                {statusLabel[status]}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                        {log.notes && <p className="mt-2 text-sm text-gray-600">Catatan: {log.notes}</p>}
+                      </div>
+                    ))
+                  ) : (
+                    <p className="py-4 text-center italic text-gray-400">Tidak ada data.</p>
+                  )}
                 </div>
-              ))
-            ) : (
-              <p className="py-8 text-center italic text-gray-400">Belum ada data status dokumen.</p>
-            )}
+              </div>
+            ))}
+
+            <div>
+              <h4 className="mb-3 text-sm font-extrabold uppercase tracking-wider text-gray-700">
+                Riwayat Sudah Diambil ({historyLogs.length})
+              </h4>
+              <div className="max-h-[220px] space-y-3 overflow-y-auto pr-1">
+                {historyLogs.length ? (
+                  historyLogs.map((log) => (
+                    <div key={log.id} className="rounded-xl border border-emerald-200 bg-emerald-50 p-4">
+                      <div className="flex flex-wrap items-center justify-between gap-3">
+                        <div>
+                          <p className="font-bold text-gray-800">{log.name} • {log.document_type}</p>
+                          <p className="text-sm text-gray-500">NIK: {log.nik}</p>
+                          <p className="text-sm text-gray-500">
+                            {log.pickup_counter ? `Loket: ${log.pickup_counter}` : "Loket: -"}
+                          </p>
+                        </div>
+                        <span className="rounded-full bg-emerald-600 px-3 py-1 text-xs font-bold text-white">
+                          Final: Sudah Diambil
+                        </span>
+                      </div>
+                      {log.notes && <p className="mt-2 text-sm text-gray-600">Catatan: {log.notes}</p>}
+                    </div>
+                  ))
+                ) : (
+                  <p className="py-4 text-center italic text-gray-400">Belum ada riwayat dokumen diambil.</p>
+                )}
+              </div>
+            </div>
           </div>
         </section>
 
