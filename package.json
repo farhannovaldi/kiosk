@@ -1,0 +1,13 @@
+{
+  "name": "antrian-kiosk",
+  "private": true,
+  "workspaces": [
+    "apps/*"
+  ],
+  "scripts": {
+    "dev:web": "npm --workspace web run dev",
+    "build:web": "npm --workspace web run build",
+    "start:web": "npm --workspace web run start",
+    "lint:web": "npm --workspace web run lint"
+  }
+}

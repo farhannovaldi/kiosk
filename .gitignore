@@ -1,0 +1,11 @@
+.DS_Store
+node_modules/
+.env
+.env.*
+*.log
+.next/
+dist/
+services/api/vendor/
+services/api/storage/
+services/api/bootstrap/cache/
+services/api/database/*.sqlite

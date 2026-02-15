@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 240" fill="none">
+  <!-- Shield Background -->
+  <path d="M100 10 L180 50 L180 130 Q180 190, 100 230 Q20 190, 20 130 L20 50 Z" fill="#32cc4b" stroke="#1a5726" stroke-width="4"/>
+  
+  <!-- Inner Shield -->
+  <path d="M100 30 L160 60 L160 120 Q160 170, 100 205 Q40 170, 40 120 L40 60 Z" fill="#24a839"/>
+  
+  <!-- Gold Star -->
+  <path d="M100 70 L110 95 L135 95 L115 110 L125 135 L100 120 L75 135 L85 110 L65 95 L90 95 Z" fill="#fce041" stroke="#eac51c" stroke-width="2"/>
+  
+  <!-- Text: SERGAI -->
+  <text x="100" y="175" font-family="Arial, sans-serif" font-size="24" font-weight="bold" fill="white" text-anchor="middle">SERGAI</text>
+</svg>

@@ -1,0 +1,66 @@
+@import "tailwindcss";
+
+@theme {
+  --color-brand-50: #f2fdf4;
+  --color-brand-100: #e1fce5;
+  --color-brand-200: #c3f8cb;
+  --color-brand-300: #94f1a2;
+  --color-brand-400: #5ce570;
+  --color-brand-500: #32cc4b;
+  --color-brand-600: #24a839;
+  --color-brand-700: #1f8530;
+  --color-brand-800: #1e6a2b;
+  --color-brand-900: #1a5726;
+
+  --color-accent-300: #fdec7e;
+  --color-accent-400: #fce041;
+  --color-accent-500: #eac51c;
+
+  --color-serdang-red: #c12c2c;
+  --color-serdang-blue: #2c8ac1;
+}
+
+:root {
+  /* Enforce Light Mode Variables */
+  --background: #ffffff;
+  --foreground: #1a5726; 
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: Arial, Helvetica, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Custom Animations */
+@keyframes fade-in-down {
+  0% {
+    opacity: 0;
+    transform: translateY(-20px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes fade-in-up {
+  0% {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-fade-in-down {
+  animation: fade-in-down 0.5s ease-out;
+}
+
+.animate-fade-in-up {
+  animation: fade-in-up 0.5s ease-out;
+}
+
