@@ -5,9 +5,14 @@
     "apps/*"
   ],
   "scripts": {
+    "dev": "concurrently -k -n WEB,API -c cyan,green \"npm run dev:web\" \"npm run dev:api\"",
+    "dev:api": "cd services/api && php artisan serve",
     "dev:web": "npm --workspace web run dev",
     "build:web": "npm --workspace web run build",
     "start:web": "npm --workspace web run start",
     "lint:web": "npm --workspace web run lint"
+  },
+  "devDependencies": {
+    "concurrently": "^9.2.1"
   }
 }

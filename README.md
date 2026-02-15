@@ -91,6 +91,9 @@ API default: http://localhost:8000
 3. Jalankan frontend:
    - npm run dev:web
 
+Atau jalankan frontend + backend sekaligus dari root:
+   - npm run dev
+
 Web default: http://localhost:3000
 
 ## Akun Seed Default
