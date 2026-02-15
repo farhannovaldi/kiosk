@@ -6,9 +6,13 @@ use App\Http\Controllers\Controller;
 use App\Models\Counter;
 use App\Models\Queue;
 use App\Models\Service;
+use App\Models\Visitor;
 use App\Services\TicketPrinter;
+use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Str;
 
 class QueueController extends Controller
 {
@@ -70,14 +74,67 @@ class QueueController extends Controller
     {
         $validated = $request->validate([
             'service_id' => ['required', 'integer', 'exists:services,id'],
+            'visitor_token' => ['nullable', 'string', 'max:255'],
+            'visitor_nik' => ['nullable', 'string', 'max:32'],
+            'visitor_name' => ['nullable', 'string', 'max:255'],
+            'face_capture_base64' => ['nullable', 'string', 'max:4000000'],
         ]);
+
+        $visitorToken = isset($validated['visitor_token']) ? trim($validated['visitor_token']) : null;
+        $visitorNik = isset($validated['visitor_nik']) ? trim($validated['visitor_nik']) : null;
+        $visitorName = isset($validated['visitor_name']) ? trim($validated['visitor_name']) : null;
+        $faceCaptureBase64 = isset($validated['face_capture_base64']) ? trim($validated['face_capture_base64']) : null;
+
+        if (! $visitorToken && ! $visitorNik) {
+            return response()->json([
+                'message' => 'NIK atau token warga wajib diisi.',
+            ], 422);
+        }
 
         $service = Service::query()
             ->where('id', $validated['service_id'])
             ->where('is_active', true)
             ->firstOrFail();
 
-        $payload = DB::transaction(function () use ($service) {
+        $payload = DB::transaction(function () use ($service, $visitorToken, $visitorNik, $visitorName) {
+            $visitor = null;
+            $isNewVisitor = false;
+
+            if ($visitorToken) {
+                $visitor = Visitor::query()
+                    ->where('qr_code_string', $visitorToken)
+                    ->first();
+
+                if (! $visitor) {
+                    abort(response()->json([
+                        'message' => 'Token warga tidak ditemukan.',
+                    ], 404));
+                }
+            } else {
+                $visitor = Visitor::query()
+                    ->where('nik', $visitorNik)
+                    ->first();
+
+                if (! $visitor) {
+                    if (! $visitorName) {
+                        abort(response()->json([
+                            'message' => 'Nama wajib diisi untuk warga baru.',
+                        ], 422));
+                    }
+
+                    $visitor = Visitor::create([
+                        'nik' => $visitorNik,
+                        'name' => $visitorName,
+                        'qr_code_string' => 'VT-'.strtoupper(Str::random(12)),
+                    ]);
+                    $isNewVisitor = true;
+                } elseif ($visitorName && $visitor->name !== $visitorName) {
+                    $visitor->update([
+                        'name' => $visitorName,
+                    ]);
+                }
+            }
+
             $queueDate = now()->toDateString();
             $lastQueue = Queue::query()
                 ->where('service_id', $service->id)
@@ -91,6 +148,7 @@ class QueueController extends Controller
 
             $queue = Queue::create([
                 'service_id' => $service->id,
+                'visitor_id' => $visitor?->id,
                 'queue_date' => $queueDate,
                 'ticket_number' => $nextNumber,
                 'ticket_code' => $ticketCode,
@@ -106,13 +164,35 @@ class QueueController extends Controller
             return [
                 'queue' => $queue,
                 'waiting_count' => $waitingCount,
+                'visitor' => $visitor,
+                'is_new_visitor' => $isNewVisitor,
             ];
         });
 
-        $queue = $payload['queue']->load('service');
+        $queue = $payload['queue']->load(['service', 'visitor']);
+
+        if ($faceCaptureBase64) {
+            try {
+                $facePath = $this->storeFaceCapture($queue, $faceCaptureBase64);
+                if ($facePath) {
+                    $queue->update(['face_capture_path' => $facePath]);
+                    $queue->face_capture_path = $facePath;
+                }
+            } catch (\Throwable $exception) {
+                logger()->warning('Face capture save failed.', [
+                    'queue_id' => $queue->id,
+                    'error' => $exception->getMessage(),
+                ]);
+            }
+        }
 
         try {
-            app(TicketPrinter::class)->printTicket($queue, $payload['waiting_count']);
+            $printer = app(TicketPrinter::class);
+            $printer->printTicket($queue, $payload['waiting_count']);
+
+            if ($payload['is_new_visitor']) {
+                $printer->printVisitorCard($queue);
+            }
         } catch (\Throwable $exception) {
             logger()->error('Ticket printing failed.', [
                 'queue_id' => $queue->id,
@@ -123,6 +203,8 @@ class QueueController extends Controller
         return response()->json([
             'queue' => $queue,
             'waiting_count' => $payload['waiting_count'],
+            'visitor' => $payload['visitor'],
+            'is_new_visitor' => $payload['is_new_visitor'],
         ], 201);
     }
 
@@ -313,6 +395,10 @@ class QueueController extends Controller
             ->orderByDesc('updated_at')
             ->first();
 
+        if ($current && $current->face_capture_path) {
+            $current->setAttribute('face_capture_url', asset('storage/'.$current->face_capture_path));
+        }
+
         $waitingCount = Queue::query()
             ->whereIn('service_id', $assigned)
             ->where('status', 'waiting')
@@ -345,7 +431,7 @@ class QueueController extends Controller
             ->get();
 
         return response()->json([
-            'current' => $current?->load('service'),
+            'current' => $current?->load(['service', 'visitor']),
             'waiting_count' => $waitingCount,
             'waiting_queues' => $waitingQueues,
             'skipped_queues' => $skippedQueues,
@@ -364,5 +450,55 @@ class QueueController extends Controller
         return response()->json([
             'deleted' => $deleted,
         ]);
+    }
+
+    private function storeFaceCapture(Queue $queue, string $base64Data): ?string
+    {
+        if (! preg_match('/^data:image\/(jpeg|jpg);base64,/', $base64Data)) {
+            return null;
+        }
+
+        $binaryData = base64_decode(substr($base64Data, strpos($base64Data, ',') + 1), true);
+        if ($binaryData === false) {
+            return null;
+        }
+
+        $safeTicket = preg_replace('/[^A-Za-z0-9\-_]/', '_', $queue->ticket_code);
+        $filename = now()->format('Ymd').'_'.$safeTicket.'.jpg';
+        $path = 'queue-faces/'.$filename;
+
+        Storage::disk('public')->put($path, $binaryData);
+        $this->cleanupOldFaceCaptures();
+
+        return $path;
+    }
+
+    private function cleanupOldFaceCaptures(): void
+    {
+        $retentionDays = (int) env('FACE_CAPTURE_RETENTION_DAYS', 30);
+        if ($retentionDays <= 0) {
+            return;
+        }
+
+        $threshold = Carbon::now()->subDays($retentionDays);
+
+        $expiredQueues = Queue::query()
+            ->whereNotNull('face_capture_path')
+            ->where('created_at', '<', $threshold)
+            ->get(['id', 'face_capture_path']);
+
+        if ($expiredQueues->isEmpty()) {
+            return;
+        }
+
+        foreach ($expiredQueues as $expiredQueue) {
+            if ($expiredQueue->face_capture_path) {
+                Storage::disk('public')->delete($expiredQueue->face_capture_path);
+            }
+        }
+
+        Queue::query()
+            ->whereIn('id', $expiredQueues->pluck('id')->all())
+            ->update(['face_capture_path' => null]);
     }
 }

@@ -1,11 +1,13 @@
 <?php
 
 use App\Http\Controllers\Api\CounterController;
+use App\Http\Controllers\Api\DocumentLogController;
 use App\Http\Controllers\Api\QueueController;
 use App\Http\Controllers\Api\ReportController;
 use App\Http\Controllers\Api\RequirementController;
 use App\Http\Controllers\Api\ServiceController;
 use App\Http\Controllers\Api\SurveyController;
+use App\Http\Controllers\Api\VisitorController;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 
@@ -13,6 +15,8 @@ Route::get('/services', [ServiceController::class, 'index']);
 Route::get('/requirements', [RequirementController::class, 'index']);
 Route::get('/requirements/{requirement}', [RequirementController::class, 'show']);
 Route::get('/display-board', [QueueController::class, 'displayBoard']);
+Route::post('/visitors/resolve', [VisitorController::class, 'resolve']);
+Route::post('/document-status/check', [DocumentLogController::class, 'check']);
 Route::post('/queues', [QueueController::class, 'store']);
 Route::post('/surveys', [SurveyController::class, 'store']);
 
@@ -42,6 +46,10 @@ Route::middleware(['auth:sanctum'])->group(function () {
     Route::post('/requirements', [RequirementController::class, 'store']);
     Route::patch('/requirements/{requirement}', [RequirementController::class, 'update']);
     Route::delete('/requirements/{requirement}', [RequirementController::class, 'destroy']);
+
+    Route::get('/document-logs', [DocumentLogController::class, 'index']);
+    Route::post('/document-logs', [DocumentLogController::class, 'store']);
+    Route::patch('/document-logs/{documentLog}', [DocumentLogController::class, 'update']);
 
     Route::get('/reports/queues', [ReportController::class, 'queueStats']);
     Route::get('/reports/surveys', [ReportController::class, 'surveyStats']);

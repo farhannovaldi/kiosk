@@ -32,6 +32,37 @@ class TicketPrinter
         $printer->close();
     }
 
+    public function printVisitorCard(Queue $queue): void
+    {
+        if (! config('printer.enabled') || ! $queue->visitor) {
+            return;
+        }
+
+        $connector = $this->makeConnector();
+        $printer = new Printer($connector);
+
+        $printer->setJustification(Printer::JUSTIFY_CENTER);
+        $printer->text(str_repeat('=', 32)."\n");
+        $printer->text("KARTU MEMBER KIOSK\n");
+        $printer->text(str_repeat('=', 32)."\n");
+        $printer->text("Nama: ".$queue->visitor->name."\n");
+        $printer->text("NIK: ".$queue->visitor->nik."\n");
+        $printer->text(str_repeat('-', 32)."\n");
+
+        try {
+            $printer->qrCode($queue->visitor->qr_code_string);
+        } catch (\Throwable $exception) {
+            $printer->text("Token: ".$queue->visitor->qr_code_string."\n");
+        }
+
+        $printer->text("\nSIMPAN KARTU INI\n");
+        $printer->text("UNTUK KUNJUNGAN BERIKUTNYA\n");
+        $printer->text(str_repeat('=', 32)."\n");
+        $printer->cut();
+
+        $printer->close();
+    }
+
     protected function makeConnector(): FilePrintConnector|NetworkPrintConnector
     {
         $connector = config('printer.connector');

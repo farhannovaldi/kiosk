@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { apiFetch } from "@/lib/api";
 import Header from "@/components/Header";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
-import { faBullhorn, faPlay, faRotate, faForwardStep, faCircleCheck, faTriangleExclamation } from "@fortawesome/free-solid-svg-icons";
+import { faBullhorn, faPlay, faRotate, faForwardStep, faCircleCheck, faTriangleExclamation, faFileLines } from "@fortawesome/free-solid-svg-icons";
 
 type Service = {
   id: number;
@@ -17,6 +17,14 @@ type Queue = {
   ticket_code: string;
   status: string;
   service: Service;
+  visitor?: {
+    id: number;
+    token: string;
+    nik: string;
+    name: string;
+  } | null;
+  face_capture_path?: string | null;
+  face_capture_url?: string | null;
 };
 
 type Counter = {
@@ -34,12 +42,32 @@ type Dashboard = {
   recent_completed: Queue[];
 };
 
+type DocumentLog = {
+  id: number;
+  nik: string;
+  name: string;
+  document_type: string;
+  status: "diproses" | "siap_diambil" | "diambil";
+  pickup_counter: string | null;
+  notes: string | null;
+  updated_at: string;
+};
+
 export default function StaffClient() {
+  const laravelBase = process.env.NEXT_PUBLIC_LARAVEL_BASE || "http://localhost:8000";
   const [counters, setCounters] = useState<Counter[]>([]);
   const [counterId, setCounterId] = useState<number | null>(null);
   const [dashboard, setDashboard] = useState<Dashboard | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [documentLogs, setDocumentLogs] = useState<DocumentLog[]>([]);
+  const [docNik, setDocNik] = useState("");
+  const [docName, setDocName] = useState("");
+  const [docType, setDocType] = useState("");
+  const [docStatus, setDocStatus] = useState<"diproses" | "siap_diambil" | "diambil">("diproses");
+  const [docPickupCounter, setDocPickupCounter] = useState("");
+  const [docNotes, setDocNotes] = useState("");
+  const [savingDocument, setSavingDocument] = useState(false);
 
   useEffect(() => {
     const loadCounters = async () => {
@@ -55,6 +83,21 @@ export default function StaffClient() {
     
     // Auto-refresh counters setiap 1 detik
     const interval = setInterval(loadCounters, 1000);
+    return () => clearInterval(interval);
+  }, []);
+
+  useEffect(() => {
+    const loadDocumentLogs = async () => {
+      try {
+        const data = (await apiFetch("/document-logs")) as DocumentLog[];
+        setDocumentLogs(data);
+      } catch (err) {
+        console.error("Gagal memuat log dokumen:", err);
+      }
+    };
+
+    loadDocumentLogs();
+    const interval = setInterval(loadDocumentLogs, 5000);
     return () => clearInterval(interval);
   }, []);
 
@@ -163,6 +206,83 @@ export default function StaffClient() {
     }
   };
 
+  const getFaceCaptureUrl = (queue: Queue | null) => {
+    if (!queue) return null;
+    if (queue.face_capture_url) return queue.face_capture_url;
+    if (queue.face_capture_path) return `${laravelBase}/storage/${queue.face_capture_path}`;
+    return null;
+  };
+
+  const statusLabel: Record<DocumentLog["status"], string> = {
+    diproses: "Diproses",
+    siap_diambil: "Siap Diambil",
+    diambil: "Sudah Diambil",
+  };
+
+  const loadDocumentLogs = async () => {
+    const data = (await apiFetch("/document-logs")) as DocumentLog[];
+    setDocumentLogs(data);
+  };
+
+  const submitDocumentLog = async () => {
+    if (!docNik.trim() || !docName.trim() || !docType.trim()) {
+      setError("NIK, nama, dan jenis dokumen wajib diisi.");
+      return;
+    }
+
+    setSavingDocument(true);
+    setError(null);
+    try {
+      await apiFetch("/document-logs", {
+        method: "POST",
+        json: {
+          nik: docNik.trim(),
+          name: docName.trim(),
+          document_type: docType.trim(),
+          status: docStatus,
+          pickup_counter: docPickupCounter.trim() || null,
+          notes: docNotes.trim() || null,
+        },
+      });
+
+      setDocNik("");
+      setDocName("");
+      setDocType("");
+      setDocStatus("diproses");
+      setDocPickupCounter("");
+      setDocNotes("");
+      await loadDocumentLogs();
+    } catch (err: any) {
+      setError(err.message || "Gagal menyimpan status dokumen.");
+    } finally {
+      setSavingDocument(false);
+    }
+  };
+
+  const syncFromCurrentQueue = () => {
+    if (!dashboard?.current?.visitor) {
+      setError("Antrean aktif belum memiliki data warga untuk disinkronkan.");
+      return;
+    }
+
+    setDocNik(dashboard.current.visitor.nik || "");
+    setDocName(dashboard.current.visitor.name || "");
+    setError(null);
+  };
+
+  const updateDocumentStatus = async (log: DocumentLog, status: DocumentLog["status"]) => {
+    setError(null);
+    try {
+      await apiFetch(`/document-logs/${log.id}`, {
+        method: "PATCH",
+        json: { status },
+      });
+      await loadDocumentLogs();
+    } catch (err: any) {
+      setError(err.message || "Gagal update status dokumen.");
+    }
+  };
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-50 to-white">
       <Header subtitle="Dashboard Petugas Loket" showUser />
@@ -253,6 +373,17 @@ export default function StaffClient() {
               <p className="relative z-10 mt-4 text-sm font-medium text-brand-100">
                 {dashboard.current?.service?.name || "Belum ada antrean"}
               </p>
+
+              {dashboard.current && getFaceCaptureUrl(dashboard.current) && (
+                <div className="relative z-10 mt-4 rounded-xl border border-white/30 bg-black/15 p-3">
+                  <p className="mb-2 text-xs font-bold uppercase tracking-wider text-brand-100">Bukti Hadir</p>
+                  <img
+                    src={getFaceCaptureUrl(dashboard.current) as string}
+                    alt="Bukti hadir warga"
+                    className="h-28 w-full rounded-lg object-cover border border-white/20"
+                  />
+                </div>
+              )}
             </div>
 
             {/* Waiting Count */}
@@ -433,6 +564,120 @@ export default function StaffClient() {
             </div>
           </div>
         )}
+
+        <section className="mt-8 rounded-[2rem] border-2 border-emerald-200 bg-white p-8 shadow-xl">
+          <div className="mb-6 flex items-center gap-3">
+            <FontAwesomeIcon icon={faFileLines} className="h-7 w-7 text-emerald-600" />
+            <h3 className="text-2xl font-black text-gray-800">Buku Ekspedisi Digital Dokumen</h3>
+          </div>
+
+          {dashboard?.current && (
+            <div className="mb-4 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900">
+              <span className="font-bold">Antrean aktif:</span> {dashboard.current.ticket_code}
+              {dashboard.current.visitor?.name ? ` • ${dashboard.current.visitor.name}` : " • data warga belum tersedia"}
+            </div>
+          )}
+
+          <div className="mb-4">
+            <button
+              type="button"
+              onClick={syncFromCurrentQueue}
+              disabled={!dashboard?.current?.visitor}
+              className="rounded-xl border-2 border-emerald-300 bg-white px-4 py-2 text-sm font-bold text-emerald-700 transition-all hover:border-emerald-500 hover:text-emerald-800 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              Sinkron dari Antrean Aktif
+            </button>
+          </div>
+
+          <div className="mb-6 grid gap-4 md:grid-cols-3">
+            <input
+              value={docNik}
+              onChange={(event) => setDocNik(event.target.value)}
+              placeholder="NIK"
+              className="rounded-xl border-2 border-gray-200 px-4 py-3 font-medium text-gray-800 focus:border-emerald-500 focus:outline-none"
+            />
+            <input
+              value={docName}
+              onChange={(event) => setDocName(event.target.value)}
+              placeholder="Nama Warga"
+              className="rounded-xl border-2 border-gray-200 px-4 py-3 font-medium text-gray-800 focus:border-emerald-500 focus:outline-none"
+            />
+            <input
+              value={docType}
+              onChange={(event) => setDocType(event.target.value)}
+              placeholder="Jenis Dokumen (contoh: KTP)"
+              className="rounded-xl border-2 border-gray-200 px-4 py-3 font-medium text-gray-800 focus:border-emerald-500 focus:outline-none"
+            />
+            <select
+              value={docStatus}
+              onChange={(event) => setDocStatus(event.target.value as DocumentLog["status"])}
+              className="rounded-xl border-2 border-gray-200 px-4 py-3 font-medium text-gray-800 focus:border-emerald-500 focus:outline-none"
+            >
+              <option value="diproses">Diproses</option>
+              <option value="siap_diambil">Siap Diambil</option>
+              <option value="diambil">Sudah Diambil</option>
+            </select>
+            <input
+              value={docPickupCounter}
+              onChange={(event) => setDocPickupCounter(event.target.value)}
+              placeholder="Loket Pengambilan (opsional)"
+              className="rounded-xl border-2 border-gray-200 px-4 py-3 font-medium text-gray-800 focus:border-emerald-500 focus:outline-none"
+            />
+            <input
+              value={docNotes}
+              onChange={(event) => setDocNotes(event.target.value)}
+              placeholder="Catatan (opsional)"
+              className="rounded-xl border-2 border-gray-200 px-4 py-3 font-medium text-gray-800 focus:border-emerald-500 focus:outline-none"
+            />
+          </div>
+
+          <button
+            type="button"
+            onClick={submitDocumentLog}
+            disabled={savingDocument}
+            className="mb-6 rounded-xl bg-gradient-to-r from-emerald-500 to-emerald-700 px-6 py-3 font-bold text-white shadow-lg transition-all hover:shadow-xl disabled:opacity-50"
+          >
+            {savingDocument ? "Menyimpan..." : "Simpan Status Dokumen"}
+          </button>
+
+          <div className="max-h-[320px] space-y-3 overflow-y-auto pr-1">
+            {documentLogs.length ? (
+              documentLogs.map((log) => (
+                <div key={log.id} className="rounded-xl border border-gray-200 bg-gray-50 p-4">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div>
+                      <p className="font-bold text-gray-800">{log.name} • {log.document_type}</p>
+                      <p className="text-sm text-gray-500">NIK: {log.nik}</p>
+                      <p className="text-sm text-gray-500">
+                        {log.pickup_counter ? `Loket: ${log.pickup_counter}` : "Loket: -"}
+                      </p>
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      {(["diproses", "siap_diambil", "diambil"] as DocumentLog["status"][]).map((status) => (
+                        <button
+                          key={status}
+                          type="button"
+                          onClick={() => updateDocumentStatus(log, status)}
+                          className={`rounded-lg px-3 py-1.5 text-xs font-bold transition-all ${
+                            log.status === status
+                              ? "bg-emerald-600 text-white"
+                              : "bg-white text-gray-600 border border-gray-300 hover:border-emerald-400 hover:text-emerald-700"
+                          }`}
+                        >
+                          {statusLabel[status]}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  {log.notes && <p className="mt-2 text-sm text-gray-600">Catatan: {log.notes}</p>}
+                </div>
+              ))
+            ) : (
+              <p className="py-8 text-center italic text-gray-400">Belum ada data status dokumen.</p>
+            )}
+          </div>
+        </section>
 
         {/* Error Message */}
         {error && (

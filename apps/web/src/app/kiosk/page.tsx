@@ -1,7 +1,7 @@
 import Link from "next/link";
 import Header from "@/components/Header";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
-import { faTicket, faClipboardList, faStar } from "@fortawesome/free-solid-svg-icons";
+import { faTicket, faClipboardList, faStar, faFileLines } from "@fortawesome/free-solid-svg-icons";
 
 export default function KioskPage() {
   return (
@@ -23,7 +23,7 @@ export default function KioskPage() {
           </p>
         </div>
 
-        <div className="grid gap-6 md:grid-cols-3 md:gap-10">
+        <div className="grid gap-6 md:grid-cols-2 xl:grid-cols-4 md:gap-8">
           <Link
             href="/kiosk/queue"
             className="group relative flex min-h-[320px] flex-col overflow-hidden rounded-[2.5rem] bg-white p-8 shadow-xl shadow-brand-900/5 transition-all duration-500 hover:-translate-y-2 hover:shadow-2xl hover:shadow-brand-900/10 border border-brand-100/50"
@@ -115,6 +115,37 @@ export default function KioskPage() {
                 Nilai
               </span>
               <div className="flex h-12 w-12 items-center justify-center rounded-full bg-white text-serdang-blue shadow-md transition-all duration-300 group-hover:bg-serdang-blue group-hover:text-white group-hover:shadow-lg">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={3} stroke="currentColor" className="w-5 h-5">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M13.5 4.5L21 12m0 0l-7.5 7.5M21 12H3" />
+                </svg>
+              </div>
+            </div>
+          </Link>
+
+          <Link
+            href="/kiosk/document-status"
+            className="group relative flex min-h-[320px] flex-col overflow-hidden rounded-[2.5rem] bg-white p-8 shadow-xl shadow-brand-900/5 transition-all duration-500 hover:-translate-y-2 hover:shadow-2xl hover:shadow-brand-900/10 border border-brand-100/50"
+          >
+            <div className="absolute inset-0 bg-gradient-to-br from-transparent to-violet-50/60 opacity-0 group-hover:opacity-100 transition-opacity duration-500" />
+            <div className="absolute -right-16 -top-16 h-64 w-64 rounded-full border border-violet-100/80 bg-violet-100/70 transition-all duration-700 group-hover:scale-110 group-hover:bg-violet-200/45" />
+
+            <div className="relative z-10 mb-auto">
+              <div className="mb-8 flex h-20 w-20 items-center justify-center rounded-2xl bg-violet-600 text-4xl text-white shadow-lg shadow-violet-600/20 transition-all duration-500 group-hover:scale-110 group-hover:bg-violet-500 group-hover:shadow-violet-500/30">
+                <FontAwesomeIcon icon={faFileLines} className="h-10 w-10" />
+              </div>
+              <h3 className="mb-3 text-3xl font-bold text-gray-800 transition-colors group-hover:text-violet-700">
+                Cek Dokumen
+              </h3>
+              <p className="text-lg font-medium leading-relaxed text-gray-500 transition-colors group-hover:text-violet-700/80">
+                Cek status dokumen Anda dengan scan token atau input NIK.
+              </p>
+            </div>
+
+            <div className="relative z-10 mt-8 flex items-center justify-between border-t border-gray-100 pt-6 group-hover:border-violet-200">
+              <span className="text-sm font-bold uppercase tracking-widest text-violet-500 transition-colors group-hover:text-violet-600">
+                Cek
+              </span>
+              <div className="flex h-12 w-12 items-center justify-center rounded-full bg-white text-violet-600 shadow-md transition-all duration-300 group-hover:bg-violet-600 group-hover:text-white group-hover:shadow-lg">
                 <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={3} stroke="currentColor" className="w-5 h-5">
                   <path strokeLinecap="round" strokeLinejoin="round" d="M13.5 4.5L21 12m0 0l-7.5 7.5M21 12H3" />
                 </svg>

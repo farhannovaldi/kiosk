@@ -1,9 +1,10 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { apiFetch } from "@/lib/api";
 import Header from "@/components/Header";
+import QRCode from "qrcode";
 
 type Service = {
   id: number;
@@ -14,7 +15,6 @@ type Service = {
 };
 
 type QueueResponse = {
-  message: string;
   queue: {
     id: number;
     ticket_code: string;
@@ -23,6 +23,15 @@ type QueueResponse = {
     created_at: string;
   };
   waiting_count: number;
+  visitor?: Visitor | null;
+  is_new_visitor?: boolean;
+};
+
+type Visitor = {
+  id: number;
+  nik: string;
+  name: string;
+  qr_code_string: string;
 };
 
 export default function QueueClient({ services: initialServices }: { services: Service[] }) {
@@ -31,6 +40,18 @@ export default function QueueClient({ services: initialServices }: { services: S
   const [loadingId, setLoadingId] = useState<number | null>(null);
   const [ticket, setTicket] = useState<QueueResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [visitorNik, setVisitorNik] = useState("");
+  const [visitorName, setVisitorName] = useState("");
+  const [visitorToken, setVisitorToken] = useState("");
+  const [resolvedVisitor, setResolvedVisitor] = useState<Visitor | null>(null);
+  const [resolvingVisitor, setResolvingVisitor] = useState(false);
+  const [cameraEnabled] = useState(true);
+  const [cameraReady, setCameraReady] = useState(false);
+  const [cameraError, setCameraError] = useState<string | null>(null);
+  const [memberQrDataUrl, setMemberQrDataUrl] = useState<string | null>(null);
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const streamRef = useRef<MediaStream | null>(null);
 
   // Auto-refresh services setiap 1 detik
   useEffect(() => {
@@ -47,6 +68,52 @@ export default function QueueClient({ services: initialServices }: { services: S
     return () => clearInterval(interval);
   }, []);
 
+  useEffect(() => {
+    const setupCamera = async () => {
+      if (!cameraEnabled || typeof navigator === "undefined") {
+        if (streamRef.current) {
+          streamRef.current.getTracks().forEach((track) => track.stop());
+          streamRef.current = null;
+        }
+        setCameraReady(false);
+        return;
+      }
+
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: {
+            facingMode: "user",
+            width: { ideal: 640 },
+            height: { ideal: 480 },
+          },
+          audio: false,
+        });
+
+        streamRef.current = stream;
+        setCameraError(null);
+
+        if (videoRef.current) {
+          videoRef.current.srcObject = stream;
+          videoRef.current.onloadedmetadata = () => {
+            setCameraReady(true);
+          };
+        }
+      } catch (err) {
+        setCameraError("Kamera tidak dapat diakses. Beri izin kamera pada browser kiosk.");
+        setCameraReady(false);
+      }
+    };
+
+    setupCamera();
+
+    return () => {
+      if (streamRef.current) {
+        streamRef.current.getTracks().forEach((track) => track.stop());
+        streamRef.current = null;
+      }
+    };
+  }, [cameraEnabled]);
+
   // Auto print ketika ticket berhasil diambil
   useEffect(() => {
     if (ticket) {
@@ -57,15 +124,83 @@ export default function QueueClient({ services: initialServices }: { services: S
     }
   }, [ticket]);
 
+  useEffect(() => {
+    const renderMemberQr = async () => {
+      if (!ticket?.is_new_visitor || !ticket.visitor?.qr_code_string) {
+        setMemberQrDataUrl(null);
+        return;
+      }
+
+      try {
+        const dataUrl = await QRCode.toDataURL(ticket.visitor.qr_code_string, {
+          width: 180,
+          margin: 1,
+        });
+        setMemberQrDataUrl(dataUrl);
+      } catch {
+        setMemberQrDataUrl(null);
+      }
+    };
+
+    renderMemberQr();
+  }, [ticket]);
+
+  const captureFaceSnapshot = () => {
+    const video = videoRef.current;
+    const canvas = canvasRef.current;
+
+    if (!cameraEnabled || !cameraReady || !video || !canvas) {
+      return null;
+    }
+
+    const width = video.videoWidth || 640;
+    const height = video.videoHeight || 480;
+    canvas.width = width;
+    canvas.height = height;
+
+    const context = canvas.getContext("2d");
+    if (!context) {
+      return null;
+    }
+
+    context.drawImage(video, 0, 0, width, height);
+    return canvas.toDataURL("image/jpeg", 0.82);
+  };
+
   const handleSelect = async (serviceId: number) => {
     if (loadingId !== null) return;
+
+    const normalizedToken = visitorToken.trim();
+    const normalizedNik = visitorNik.trim();
+    const normalizedName = visitorName.trim();
+
+    if (!normalizedToken && !normalizedNik) {
+      setError("Isi NIK warga atau scan token terlebih dahulu.");
+      return;
+    }
+
+    if (!normalizedToken && !resolvedVisitor && !normalizedName) {
+      setError("Nama wajib diisi untuk warga baru.");
+      return;
+    }
+
     setLoadingId(serviceId);
     setError(null);
 
     try {
+      const faceCaptureBase64 = captureFaceSnapshot();
+
       const data = await apiFetch("/queues", {
         method: "POST",
-        json: { service_id: serviceId },
+        json: {
+          service_id: serviceId,
+          visitor_token: normalizedToken || undefined,
+          visitor_nik: normalizedToken ? undefined : normalizedNik,
+          visitor_name: normalizedToken
+            ? undefined
+            : (resolvedVisitor?.name || normalizedName || undefined),
+          face_capture_base64: faceCaptureBase64 || undefined,
+        },
       }) as QueueResponse;
       
       setTicket(data);
@@ -80,6 +215,42 @@ export default function QueueClient({ services: initialServices }: { services: S
     } finally {
       setLoadingId(null);
     }
+  };
+
+  const resolveVisitorByToken = async () => {
+    const token = visitorToken.trim();
+    if (!token) {
+      setError("Token wajib diisi sebelum scan/cari.");
+      return;
+    }
+
+    setResolvingVisitor(true);
+    setError(null);
+    try {
+      const data = (await apiFetch("/visitors/resolve", {
+        method: "POST",
+        json: { token },
+      })) as { visitor: Visitor };
+
+      setResolvedVisitor(data.visitor);
+      setVisitorNik(data.visitor.nik);
+      setVisitorName(data.visitor.name);
+    } catch (err: any) {
+      setResolvedVisitor(null);
+      setVisitorNik("");
+      setVisitorName("");
+      setError(err.message || "Token tidak dikenali. Gunakan input NIK untuk warga baru.");
+    } finally {
+      setResolvingVisitor(false);
+    }
+  };
+
+  const clearVisitor = () => {
+    setVisitorToken("");
+    setVisitorNik("");
+    setVisitorName("");
+    setResolvedVisitor(null);
+    setError(null);
   };
 
   if (ticket) {
@@ -234,6 +405,34 @@ export default function QueueClient({ services: initialServices }: { services: S
               }}>
                   Terima kasih atas kunjungan Anda
               </div>
+
+              {ticket.is_new_visitor && ticket.visitor && (
+                <div style={{ pageBreakBefore: 'always', marginTop: '10mm' }}>
+                  <div style={{ 
+                    textAlign: 'center', 
+                    border: '4px solid black', 
+                    padding: '4mm',
+                    marginBottom: '4mm'
+                  }}>
+                    <div style={{ fontSize: '13px', fontWeight: 'bold', marginBottom: '2mm' }}>KARTU MEMBER KIOSK</div>
+                    <div style={{ fontSize: '9px', marginBottom: '2mm' }}>SIMPAN KARTU INI UNTUK KUNJUNGAN BERIKUTNYA</div>
+                  </div>
+                  <div style={{ fontSize: '11px', marginBottom: '2mm' }}><strong>Nama:</strong> {ticket.visitor.name}</div>
+                  <div style={{ fontSize: '11px', marginBottom: '2mm' }}><strong>NIK:</strong> {ticket.visitor.nik}</div>
+                  {memberQrDataUrl && (
+                    <div style={{ textAlign: 'center', marginTop: '4mm', marginBottom: '4mm' }}>
+                      <img
+                        src={memberQrDataUrl}
+                        alt="QR Token Member"
+                        style={{ width: '34mm', height: '34mm', objectFit: 'contain' }}
+                      />
+                    </div>
+                  )}
+                  <div style={{ fontSize: '9px', marginTop: '4mm', borderTop: '1px dashed #999', paddingTop: '3mm' }}>
+                    Token: {ticket.visitor.qr_code_string}
+                  </div>
+                </div>
+              )}
           </div>
         </>
       );
@@ -256,6 +455,91 @@ export default function QueueClient({ services: initialServices }: { services: S
             </button>
             <h2 className="text-4xl font-black text-brand-900 mb-3">Pilih Jenis Layanan</h2>
             <p className="text-lg text-brand-700 font-medium">Silakan pilih layanan yang sesuai dengan keperluan Anda.</p>
+        </div>
+
+        <div className="mb-8 rounded-3xl border-2 border-brand-100 bg-white p-6 shadow-lg">
+          <h3 className="mb-4 text-xl font-black text-brand-900">Identitas Warga</h3>
+
+          <div className="grid gap-4 md:grid-cols-3">
+            <label className="block">
+              <span className="mb-2 block text-sm font-bold uppercase tracking-wider text-gray-600">Scan Token Lama</span>
+              <input
+                value={visitorToken}
+                onChange={(event) => setVisitorToken(event.target.value)}
+                placeholder="Tempel QR token di scanner"
+                className="w-full rounded-xl border-2 border-gray-200 px-4 py-3 font-medium text-gray-800 focus:border-brand-500 focus:outline-none"
+              />
+            </label>
+
+            <label className="block">
+              <span className="mb-2 block text-sm font-bold uppercase tracking-wider text-gray-600">NIK</span>
+              <input
+                value={visitorNik}
+                onChange={(event) => {
+                  setVisitorNik(event.target.value);
+                  if (resolvedVisitor && event.target.value !== resolvedVisitor.nik) {
+                    setResolvedVisitor(null);
+                  }
+                }}
+                placeholder="16 digit NIK"
+                className="w-full rounded-xl border-2 border-gray-200 px-4 py-3 font-medium text-gray-800 focus:border-brand-500 focus:outline-none"
+              />
+            </label>
+
+            <label className="block">
+              <span className="mb-2 block text-sm font-bold uppercase tracking-wider text-gray-600">Nama Warga</span>
+              <input
+                value={visitorName}
+                onChange={(event) => setVisitorName(event.target.value)}
+                placeholder="Wajib untuk warga baru"
+                className="w-full rounded-xl border-2 border-gray-200 px-4 py-3 font-medium text-gray-800 focus:border-brand-500 focus:outline-none"
+              />
+            </label>
+          </div>
+
+          <div className="mt-4 flex flex-wrap gap-3">
+            <button
+              type="button"
+              onClick={resolveVisitorByToken}
+              disabled={resolvingVisitor}
+              className="rounded-xl border-2 border-brand-500 bg-brand-50 px-5 py-2.5 font-bold text-brand-700 transition-all hover:bg-brand-500 hover:text-white disabled:opacity-50"
+            >
+              {resolvingVisitor ? "Memeriksa Token..." : "Scan / Cek Token"}
+            </button>
+            <button
+              type="button"
+              onClick={clearVisitor}
+              className="rounded-xl border-2 border-gray-300 bg-white px-5 py-2.5 font-bold text-gray-700 transition-all hover:bg-gray-100"
+            >
+              Reset Identitas
+            </button>
+            {resolvedVisitor && (
+              <span className="inline-flex items-center rounded-xl bg-green-50 px-4 py-2 text-sm font-bold text-green-700 border border-green-200">
+                Warga lama terdeteksi: {resolvedVisitor.name}
+              </span>
+            )}
+          </div>
+
+          <div className="mt-6 rounded-2xl border border-gray-200 bg-gray-50 p-4">
+            <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <p className="text-sm font-bold uppercase tracking-wider text-gray-600">Bukti Hadir Visual (Kamera)</p>
+                <p className="text-xs text-gray-500">Kamera aktif otomatis. Foto diambil saat tombol pilih layanan ditekan.</p>
+              </div>
+            </div>
+
+            <div className="mx-auto w-full max-w-md overflow-hidden rounded-xl border border-gray-200 bg-black">
+              <video ref={videoRef} autoPlay muted playsInline className="aspect-[4/3] w-full object-cover" />
+            </div>
+            <canvas ref={canvasRef} className="hidden" />
+
+            {cameraEnabled && cameraReady && !cameraError && (
+              <p className="mt-2 text-xs font-semibold text-emerald-700">Kamera aktif. Snapshot otomatis saat cetak tiket.</p>
+            )}
+            {cameraError && (
+              <p className="mt-2 text-xs font-semibold text-red-600">{cameraError}</p>
+            )}
+          </div>
         </div>
 
         {error && (
